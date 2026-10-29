@@ -1,0 +1,11 @@
+requests>=2.31.0
+httpx>=0.27.0
+python-dotenv
+PyYAML
+colorama>=0.4.6
+retrying>=1.3.4
+flask
+# 浏览器内扫码登录（工作台「凭证 → 浏览器扫码」用）。
+# 只用 Playwright 的 Python 包驱动系统自带的 Chromium，不必再下载浏览器：
+#   pip install playwright && apt install chromium
+playwright>=1.40

@@ -1,0 +1,40 @@
+# 配置与敏感信息
+config.yaml
+.env
+.env.bak_*
+config/
+*.json
+# 例外：本地资源池（数据来源，需入库共享）
+!资源池.json
+
+# 运行时数据
+data/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# 参考项目（本地保留，不上传）
+参考项目/
+_tmp_*.txt
+
+# PanSou 运行时产物（源码与编译产物 pansou/dist/ 正常入库）
+pansou/cache/
+pansou/pansou.log
+
+# PanSou 源码例外：PanSou 的 Go 源码包 config/ 不受上方 config/ 规则影响
+!pansou/config/
+
+# WorkBuddy 工作区记忆（含本地路径等隐私信息，不上传）
+.workbuddy/
+
+# PanSou 编译产物（184MB，需时用 build_pansou.sh 重编）
+pansou/dist/
+pansou/*.exe

@@ -1,0 +1,69 @@
+﻿name: 网盘联动分享定时推送
+
+on:
+  schedule:
+    - cron: '11 16 1 8 *'
+  workflow_dispatch:
+    inputs:
+      count:
+        description: '随机推送数量（默认 6）'
+        required: false
+        default: '6'
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .env from Secrets
+        shell: bash
+        env:
+          WECHAT_WEBHOOK_URL: ${{ secrets.WECHAT_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          KUAKE_COOKIE_2: ${{ secrets.KUAKE_COOKIE_2 }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_WIKI_NODE_TOKEN: ${{ secrets.FEISHU_WIKI_NODE_TOKEN }}
+          FEISHU_TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
+        run: |
+          cat > .env <<EOF
+          WECHAT_WEBHOOK_URL=${WECHAT_WEBHOOK_URL}
+          FEISHU_WEBHOOK_URL=${FEISHU_WEBHOOK_URL}
+          KUAKE_COOKIE_2=${KUAKE_COOKIE_2}
+          FEISHU_ENABLED=true
+          FEISHU_APP_ID=${FEISHU_APP_ID}
+          FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
+          FEISHU_WIKI_NODE_TOKEN=${FEISHU_WIKI_NODE_TOKEN}
+          FEISHU_TABLE_ID=${FEISHU_TABLE_ID}
+          EOF
+          echo "已生成 .env（联动分享所需配置）"
+
+      - name: Ensure kuake CLI exists
+        shell: bash
+        run: |
+          CLI=assets/bin/kuake-v1.5.0-linux-amd64
+          if [ ! -f "$CLI" ]; then
+            echo "::error::$CLI not found. Please commit the linux build into assets/bin/."
+            exit 1
+          fi
+          chmod +x "$CLI"
+          echo "kuake CLI OK: $(stat -c%s "$CLI") bytes"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: bash
+        run: pip install -r requirements.txt
+
+      - name: Run 联动分享
+        shell: bash
+        env:
+          COUNT: ${{ github.event.inputs.count || '6' }}
+        run: |
+          # 联动分享.py 默认随机 6 个，企业微信 + 飞书自动推送
+          python 联动分享.py "$COUNT"
