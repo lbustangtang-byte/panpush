@@ -470,6 +470,23 @@ cURL 命令     curl 'https://pan.quark.cn/...' -H 'cookie: ...'
           <b>QQ 群</b>
           <small>走 OneBot 协议端（NapCat / LLOneBot），不是 QQ 官方机器人</small>
         </div>
+        <!-- 扫码登录小号：NapCat 跑在本机，二维码直接显示在这里 -->
+        <div id="qq-login-box" style="border:1px dashed var(--line,#ccc);border-radius:8px;padding:10px;margin-bottom:12px">
+          <div style="display:flex;gap:14px;align-items:flex-start">
+            <div id="qq-qr-wrap" style="flex:0 0 148px;text-align:center">
+              <img id="qq-qr" alt="QQ 登录二维码" style="width:148px;height:148px;border-radius:6px;background:#f5f5f5;object-fit:contain">
+              <div class="hint" id="qq-qr-tip" style="margin-top:4px"></div>
+            </div>
+            <div style="flex:1;min-width:0">
+              <div id="qq-login-state" class="hint">正在检查 NapCat 状态…</div>
+              <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn sm" id="qq-refresh-btn" style="display:none" onclick="qqRefreshQr()">刷新二维码</button>
+                <button class="btn primary sm" id="qq-http-btn" style="display:none" onclick="qqEnableHttp()">登录成功 · 一键开启推送接口</button>
+              </div>
+              <div class="hint" id="qq-enable-msg" style="margin-top:6px"></div>
+            </div>
+          </div>
+        </div>
         <label><input type="checkbox" id="qq-on" style="vertical-align:-1px"> 启用 QQ 群推送 <code>QQ_ENABLED</code></label>
         <label>OneBot 接口地址 <code>ONEBOT_URL</code></label>
         <input type="text" id="cred-onebot" placeholder="http://127.0.0.1:3000" style="margin-bottom:10px">
@@ -984,17 +1001,26 @@ async function saveQq() {
 
   msg.className = 'cred-msg show'; msg.textContent = '保存并验证中…';
   try {
+    // token 留空时不下发空值覆盖 —— 协议端多半已经设了 token
+    // （一键开启时自动生成的），用空值覆盖会把通道弄坏。
+    const values = {
+      QQ_ENABLED: on ? 'true' : 'false',
+      ONEBOT_URL: url,
+      QQ_GROUP_ID: group
+    };
+    if (token) values.ONEBOT_ACCESS_TOKEN = token;
     const d = await api('/api/workbench/credentials', {method:'POST', body: JSON.stringify({
-      values: {
-        QQ_ENABLED: on ? 'true' : 'false',
-        ONEBOT_URL: url,
-        QQ_GROUP_ID: group,
-        ONEBOT_ACCESS_TOKEN: token
-      },
-      verify: true
+      values, verify: true
     })});
     const chk = (d.checks || {}).ONEBOT_URL;
-    if (chk && !chk.ok) { msg.className='cred-msg bad show'; msg.textContent = chk.message; }
+    if (chk && !chk.ok) {
+      let m = chk.message || '';
+      // 连不上 OneBot 时，90% 是小号没登录（NapCat 登录后才会开 3000 端口）
+      if (/disconnect|refused|timed?\s*out|ETIMEDOUT|ECONNREFUSED/i.test(m)) {
+        m += ' —— 多半是小号没登录：先扫上方二维码登录，再重新点「保存并验证」。';
+      }
+      msg.className='cred-msg bad show'; msg.textContent = m;
+    }
     else { msg.className='cred-msg ok show'; msg.textContent = (chk && chk.message) || d.message; }
     $('#cred-onebot-token').value = '';
     loadHealth();
@@ -1002,6 +1028,81 @@ async function saveQq() {
     msg.className='cred-msg bad show'; msg.textContent='保存失败：' + e.message;
   }
 }
+
+// ── QQ 扫码登录（NapCat 本机容器，3 秒轮询状态）──
+let qqPollTimer = null;
+async function qqPollLogin() {
+  try {
+    const d = await api('/api/workbench/qq_login');
+    const st = $('#qq-login-state'), img = $('#qq-qr'), tip = $('#qq-qr-tip');
+    const btnRefresh = $('#qq-refresh-btn'), btnHttp = $('#qq-http-btn');
+    if (!d.napcat) {
+      st.textContent = 'NapCat 协议端未运行（容器没起来）';
+      img.removeAttribute('src'); tip.textContent = '';
+      btnRefresh.style.display = 'none'; btnHttp.style.display = 'none';
+      return;
+    }
+    if (d.logged_in && d.http_ready) {
+      st.innerHTML = '<b style="color:#1a9c6b">小号已在线</b>' +
+        (d.nickname ? `：${d.nickname}（${d.uin}）` : '');
+      img.removeAttribute('src'); tip.textContent = '';
+      btnRefresh.style.display = 'none'; btnHttp.style.display = 'none';
+      stopQqPoll();
+      return;
+    }
+    if (d.logged_in) {
+      st.textContent = '小号已登录，但推送接口还没开启';
+      img.removeAttribute('src'); tip.textContent = '';
+      btnRefresh.style.display = 'none'; btnHttp.style.display = '';
+      return;
+    }
+    btnHttp.style.display = 'none';
+    if (d.qr) {
+      img.src = d.qr;
+      const stale = (d.qr_age || 0) > 115;   // 二维码约 2 分钟过期
+      tip.textContent = stale ? '二维码过期，正在自动刷新…'
+                              : '请用 QQ 小号扫码（约 2 分钟有效）';
+      st.textContent = '等待扫码…';
+      btnRefresh.style.display = stale ? '' : 'none';
+    } else {
+      st.textContent = '二维码生成中，稍候…';
+      btnRefresh.style.display = '';
+    }
+  } catch (e) {
+    $('#qq-login-state').textContent = '状态获取失败：' + e.message;
+  }
+}
+function startQqPoll() { if (qqPollTimer) return; qqPollLogin(); qqPollTimer = setInterval(qqPollLogin, 3000); }
+function stopQqPoll() { if (qqPollTimer) { clearInterval(qqPollTimer); qqPollTimer = null; } }
+async function qqRefreshQr() {
+  $('#qq-qr-tip').textContent = '正在生成新二维码…';
+  try { await api('/api/workbench/qq_refresh', {method:'POST'}); } catch (e) {}
+  setTimeout(qqPollLogin, 5000);
+}
+async function qqEnableHttp() {
+  const m = $('#qq-enable-msg');
+  m.textContent = '正在写入协议端配置并重启…';
+  try {
+    const d = await api('/api/workbench/qq_enable_http', {method:'POST'});
+    if (!d.success) { m.textContent = '失败：' + (d.error || '未知'); return; }
+    // 地址、token、启用开关全自动填好，用户只需补群号
+    $('#cred-onebot').value = 'http://127.0.0.1:3000';
+    if (d.token) $('#cred-onebot-token').value = d.token;
+    $('#qq-on').checked = true;
+    if (d.logged_in) {
+      m.innerHTML = '接口已开启，地址/token/启用已自动填好 —— 补上<b>群号</b>后点「保存并验证」即可。' +
+        (d.uin ? `<br>小号：${d.nickname || ''}（${d.uin}）` : '');
+    } else {
+      // 小号不在线：3000 端口要登录后才会开，不能说"已开启"
+      m.innerHTML = '<b style="color:#b8860b">配置已写好，但小号还没登录。</b>' +
+        '请先扫上方的二维码登录（二维码约 2 分钟有效，过期会自动换新），' +
+        '登录成功后再点「保存并验证」。';
+    }
+    startQqPoll();
+    loadHealth();
+  } catch (e) { m.textContent = '失败：' + e.message; }
+}
+startQqPoll();
 
 async function saveCred(name) {
   const f = CRED_FIELDS[name];
