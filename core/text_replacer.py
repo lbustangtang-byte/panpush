@@ -570,7 +570,9 @@ async def run_from_text(text, save_results=False, push_wechat=False):
 
         # 「替换」是用户发给我/机器人的触发词，属于指令不是文案，
         # 推送和历史记录里都不能带出去。
-        new_text = re.sub(r"(?m)(^|[ \t])替换[ \t]*$", "", new_text).rstrip()
+        # 兼容「替换」「替换，另外计时」这类带备注的写法：整行剥掉。
+        new_text = re.sub(r"(?m)(^|[ \t])替换[ \t]*[，,、.。!！?？].*$|(^|[ \t])替换[ \t]*$",
+                          "", new_text).rstrip()
         push_text = new_text
 
         # 失败的条目不进正文：把「转存失败」占位整行删掉，
