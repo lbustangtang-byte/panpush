@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.yinliu_filter import match_yinliu, rewrite_contact, strip_ad_wrappers
 
-MY = "kds3566"
+MY = "test_contact"
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ MY = "kds3566"
 def test_rewrite_basic():
     """最典型的正课 + 广告尾巴。"""
     src = '43 《风筝》【更多好课加微信z13492263】.pdf'
-    assert rewrite_contact(src, MY) == '43 《风筝》【更多好课加微信kds3566】.pdf'
+    assert rewrite_contact(src, MY) == '43 《风筝》【更多好课加微信test_contact】.pdf'
 
 
 def test_rewrite_keeps_title_intact():
@@ -44,12 +44,12 @@ def test_rewrite_keeps_title_intact():
     assert out is not None
     assert '发刊词' in out
     assert 'z13492263' not in out
-    assert 'kds3566' in out
+    assert 'test_contact' in out
 
 
 def test_rewrite_is_idempotent():
     """已经是自己的号时返回 None，避免每次跑都重复 rename。"""
-    src = '43 《风筝》【更多好课加微信kds3566】.pdf'
+    src = '43 《风筝》【更多好课加微信test_contact】.pdf'
     assert rewrite_contact(src, MY) is None
 
 
@@ -71,7 +71,7 @@ def test_rewrite_qq_number():
     src = '资料目录【QQ群123456789】.pdf'
     out = rewrite_contact(src, MY)
     assert out is not None
-    assert 'kds3566' in out
+    assert 'test_contact' in out
     assert '123456789' not in out
 
 
@@ -81,13 +81,13 @@ def test_rewrite_vx_variant():
     out = rewrite_contact(src, MY)
     assert out is not None
     assert 'ABCdef123' not in out
-    assert 'kds3566' in out
+    assert 'test_contact' in out
 
 
 def test_rewrite_default_contact():
     """不传 my_contact 时用 DEFAULT_MY_CONTACT。"""
     src = '01【更多好课加微信z13492263】.pdf'
-    assert 'kds3566' in (rewrite_contact(src) or '')
+    assert 'your_contact' in (rewrite_contact(src) or '')
 
 
 # ---------------------------------------------------------------------------

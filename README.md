@@ -1,32 +1,9 @@
-# 网盘拉新统一转存工具
-
-> 给大家推荐一个比看抖音还能赚钱的方法，就是资源分享，首先需要注册网盘拉新平台，https://dcn8qexvg13r.feishu.cn/wiki/GCUawXLE2iW09JkJM6OcbPnqnte
+# panpush —— 网盘转存 · 链接替换 · 多通道推送 一体化工具
 
 把原来的「百度网盘转存」和「夸克网盘转存」两个独立项目，合并为一个统一项目。
-一份配置、一个入口、统一的企业微信推送和 Web 管理界面，百度 / 夸克可分别或一起跑。
+一份配置、一个入口、统一的推送和 Web 管理界面，百度 / 夸克 / 迅雷可分别或一起跑。
 
-搜索源采用 **PanSou 自建后端**（`http://localhost:8888`），22 个插件源 + 9 个 TG 频道，不依赖外部被封的聚合站，稳定可控。
-
-**推送效果**（企业微信实拍）：
-
-<p align="center">
-  <img src="docs/images/wechat-push-effect.jpg" alt="企业微信推送效果" width="360">
-</p>
-
----
-
-## 资源互助群 & 打赏支持
-
-**学习休闲资源互助公益分享群** —— 国内外影剧、动漫、综艺、图书、课程全覆盖。
-在公众号里发送【加群】，拉你进群 👇
-
-![学习休闲资源互助公益分享群](https://ik.imagekit.io/duan/typora-images/clipboard-2026-10-17T08-02-08-139Z-30bca8c7_ybfbrzCkS.jpg)
-
-如果这个项目对你有帮助，欢迎扫码打赏支持 ❤️
-
-| 微信支付 | 支付宝 |
-|:---:|:---:|
-| ![微信支付](https://ik.imagekit.io/duan/typora-images/mmexport1792066824132_2lkwHLKGI.jpg) | ![支付宝](https://ik.imagekit.io/duan/typora-images/mmexport1792066822824_suCsQ0-Ie.jpg) |
+**核心能力**：自动转存 → 清理别人的引流 → 复制自己的引流文件夹 → 生成新分享链接 → 按原顺序替换文案里的链接 → 推送到企业微信 / 飞书 / QQ 群（OneBot）。
 
 ---
 

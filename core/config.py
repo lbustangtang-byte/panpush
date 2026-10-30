@@ -83,8 +83,8 @@ def load_config():
     clean_yinliu_max_mb = _get("CLEAN_YINLIU_MAX_MB", 5, float)
     clean_yinliu_aggressive = _get("CLEAN_YINLIU_AGGRESSIVE", False,
                                    lambda v: v.lower() in ("1", "true", "yes"))
-    # 文件名里出现他人微信号/QQ号时，替换成自己的号（默认 kds3566）
-    clean_yinliu_my_contact = _get("CLEAN_YINLIU_MY_CONTACT", "kds3566")
+    # 文件名里出现他人微信号/QQ号时，替换成自己的号（在 .env 的 CLEAN_YINLIU_MY_CONTACT 里配置）
+    clean_yinliu_my_contact = _get("CLEAN_YINLIU_MY_CONTACT", "your_contact")
 
     # 引流文件夹：网盘上已存在的文件夹（内含 PDF / 视频 / 联系方式图片等），
     # 每个资源转存并分享成功后，把它整份复制到该资源所在的文件夹里。

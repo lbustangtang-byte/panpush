@@ -21,7 +21,7 @@ CFG = {
     "excludes": [],
     "max_small_file_bytes": 5 * 1024 * 1024,
     "aggressive_ext_check": False,
-    "my_contact": "kds3566",
+    "my_contact": "test_contact",
 }
 
 
@@ -122,7 +122,7 @@ class TestCleanTree(unittest.TestCase):
         self.assertEqual(len(renamed), 1)
         old, new = renamed[0]
         self.assertIn("abc123", old)
-        self.assertIn("kds3566", new)
+        self.assertIn("test_contact", new)
         self.assertEqual(res["renamed"], [old])
 
     def test_recurse_into_subdir(self):
