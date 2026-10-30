@@ -38,3 +38,6 @@ pansou/pansou.log
 # PanSou 编译产物（184MB，需时用 build_pansou.sh 重编）
 pansou/dist/
 pansou/*.exe
+
+# GitHub Actions 工作流含个人 secrets 配置，不上传
+.github/workflows/*.yml
