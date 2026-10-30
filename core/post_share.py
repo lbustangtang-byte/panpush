@@ -57,11 +57,13 @@ def _normalize_shares(raw_shares, platform=None):
     return out
 
 
-def send_messages(config, shares, *, kw=None, failed=False, raw_text=None, platform=None):
-    """统一发「企业微信 + 飞书群机器人」消息。
+def send_messages(config, shares, *, kw=None, failed=False, raw_text=None,
+                  platform=None, qq_push=None):
+    """统一发「企业微信 + 飞书群机器人 + QQ 群」消息。
 
     - raw_text 提供时，直接推送原始文案（文本替换模式用），不再按 shares 生成摘要卡片；
     - 否则按 shares 生成摘要卡片（send_notifications）。
+    - qq_push: QQ 群是否推送（None 时由 QQ_PUSH_MODE 自动判断）。
     飞书 bot 受 feishu.enabled 总开关控制（notifier 内部二次校验）。
     """
     feishu = (config.get("feishu", {}) or {})
@@ -71,8 +73,10 @@ def send_messages(config, shares, *, kw=None, failed=False, raw_text=None, platf
     out = {"wechat": None, "feishu": None}
     if raw_text is not None:
         if not wechat_url and not (feishu_on and feishu.get("webhook_url")):
-            return out
-        res = send_raw_text(config, raw_text)
+            # 只有 QQ 一个通道时也不能漏发 —— 交给 send_raw_text 统一判定
+            from core.notifier import send_raw_text as _send_raw
+            return _send_raw(config, raw_text, qq_push=qq_push)
+        res = send_raw_text(config, raw_text, qq_push=qq_push)
         out["wechat"] = res.get("wechat")
         out["feishu"] = res.get("feishu")
         return out

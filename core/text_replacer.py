@@ -570,8 +570,11 @@ async def run_from_text(text, save_results=False, push_wechat=False):
 
         # 「替换」是用户发给我/机器人的触发词，属于指令不是文案，
         # 推送和历史记录里都不能带出去。
-        # 兼容「替换」「替换，另外计时」这类带备注的写法：整行剥掉。
-        new_text = re.sub(r"(?m)(^|[ \t])替换[ \t]*[，,、.。!！?？].*$|(^|[ \t])替换[ \t]*$",
+        # 兼容「替换」「替换，另外计时」这类带备注的写法：整行剥掉；
+        # 「替换推送」是 QQ 推送的触发词（QQ_PUSH_MODE=trigger 时用），同样剥掉。
+        qq_trigger = "替换推送" in new_text
+        new_text = re.sub(r"(?m)(^|[ \t])(替换推送|替换)[ \t]*[，,、.。!！?？].*$"
+                          r"|(^|[ \t])(替换推送|替换)[ \t]*$",
                           "", new_text).rstrip()
         push_text = new_text
 
@@ -588,9 +591,10 @@ async def run_from_text(text, save_results=False, push_wechat=False):
             push_text = push_text[:line_start] + push_text[line_end:]
         push_text = re.sub(r"\n{3,}", "\n\n", push_text).strip()
 
-        # 消息：成功时推送替换后的完整文案（raw_text）；全部失败则不发
+        # 消息：成功时推送替换后的完整文案（raw_text）；全部失败则不发。
+        # QQ 是否推由工作台开关（QQ_PUSH_MODE）决定：trigger 时需文案带「替换推送」
         if push_wechat and success_count > 0:
-            m = send_messages(config, [], raw_text=push_text)
+            m = send_messages(config, [], raw_text=push_text, qq_push=qq_trigger)
             wechat_result = m["wechat"]
             feishu_bot_result = m["feishu"]
             if failed:
@@ -604,7 +608,8 @@ async def run_from_text(text, save_results=False, push_wechat=False):
                     lines.append(f"原因：{r.get('message') or '未知'}")
                 try:
                     from core.notifier import send_raw_text
-                    fr = send_raw_text(config, "\n".join(lines))
+                    fr = send_raw_text(config, "\n".join(lines),
+                                       qq_push=qq_trigger)
                     if isinstance(fr, dict) and fr.get("wechat"):
                         wechat_result = fr["wechat"]
                 except Exception as e2:

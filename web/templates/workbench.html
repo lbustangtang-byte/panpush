@@ -488,6 +488,9 @@ cURL 命令     curl 'https://pan.quark.cn/...' -H 'cookie: ...'
           </div>
         </div>
         <label><input type="checkbox" id="qq-on" style="vertical-align:-1px"> 启用 QQ 群推送 <code>QQ_ENABLED</code></label>
+        <label style="margin-top:8px"><input type="checkbox" id="qq-trigger" style="vertical-align:-1px" checked>
+          推送需触发词：文案末尾加<b>「替换推送」</b>才替换并推送到 QQ 群；不勾则<b>永不推 QQ</b> <code>QQ_PUSH_MODE</code></label>
+        <p class="hint" style="margin:6px 0 10px">触发词本身不会出现在推送出去的文案里，也不会出现在群里。</p>
         <label>OneBot 接口地址 <code>ONEBOT_URL</code></label>
         <input type="text" id="cred-onebot" placeholder="http://127.0.0.1:3000" style="margin-bottom:10px">
         <label>群号 <code>QQ_GROUP_ID</code></label>
@@ -728,6 +731,9 @@ async function loadHealth() {
            : c.qq.verified === false ? (c.qq.message || '验证失败')
            : `已配置（未验证）· 群 ${c.qq.group_id}`);
       if (document.activeElement !== $('#qq-on')) $('#qq-on').checked = !!c.qq.enabled;
+      if (document.activeElement !== $('#qq-trigger')) {
+        $('#qq-trigger').checked = (c.qq.push_mode || 'trigger') === 'trigger';
+      }
       if (document.activeElement !== $('#cred-onebot')) {
         $('#cred-onebot').value = c.qq.url || '';
       }
@@ -1005,6 +1011,7 @@ async function saveQq() {
     // （一键开启时自动生成的），用空值覆盖会把通道弄坏。
     const values = {
       QQ_ENABLED: on ? 'true' : 'false',
+      QQ_PUSH_MODE: $('#qq-trigger').checked ? 'trigger' : 'off',
       ONEBOT_URL: url,
       QQ_GROUP_ID: group
     };

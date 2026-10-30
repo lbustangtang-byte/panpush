@@ -50,6 +50,8 @@ CRED_SPEC = {
     "FEISHU_WEBHOOK_URL": ("飞书 Webhook", "push"),
     # QQ 群：走 OneBot 协议端（NapCat / LLOneBot），不是官方机器人
     "QQ_ENABLED": ("QQ 推送开关", "push"),
+    # QQ 推送策略：trigger=文案带「替换推送」才推；off=不推 QQ
+    "QQ_PUSH_MODE": ("QQ 推送策略", "push"),
     "ONEBOT_URL": ("OneBot 接口地址", "push"),
     "QQ_GROUP_ID": ("QQ 群号", "push"),
     "ONEBOT_ACCESS_TOKEN": ("OneBot 访问令牌", "push"),
@@ -576,6 +578,7 @@ def health():
         return {
             "ok": ok,
             "enabled": bool(q.get("enabled")),
+            "push_mode": (q.get("push_mode") or "trigger"),
             "len": len(url),
             "fp": _cred_fp(url) if url else "",
             "masked": url[:34] + ("…" if len(url) > 34 else ""),
@@ -646,6 +649,197 @@ def health():
 # ===========================================================================
 # 路由：凭证
 # ===========================================================================
+# ── QQ 扫码登录（NapCat 本机容器）───────────────────────────────────
+# NapCat 跑在本机 Docker 里，二维码/登录态都从本机文件与接口拿。
+# 用户不需要碰 docker 命令，工作台里点按钮就行。
+
+_NAPCAT_QR = "/root/napcat/cache/qrcode.png"
+_NAPCAT_CFG = "/root/napcat/config"
+_NAPCAT_HTTP_PORT = 3000
+
+
+def _napcat_running():
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", "napcat"],
+            capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() == "true"
+    except Exception:
+        return False
+
+
+def _napcat_login_via_http():
+    """HTTP 接口已开启时，直接问 OneBot 拿登录态（最可靠）。"""
+    token = (env_read().get("ONEBOT_ACCESS_TOKEN") or "").strip()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        r = httpx.get(f"http://127.0.0.1:{_NAPCAT_HTTP_PORT}/get_login_info",
+                      headers=headers, timeout=3)
+        j = r.json()
+        if j.get("retcode") == 0:
+            d = j.get("data") or {}
+            return True, str(d.get("user_id") or ""), (d.get("nickname") or "")
+    except Exception:
+        pass
+    return False, "", ""
+
+
+_LAST_QR_RESTART = [0.0]   # 自动续码的节流标记
+_LOGIN_SEEN_THIS_BOOT = {"since": None, "ok": False}
+# ⚠️ 自动续码只允许在"本次容器启动后从未登录成功过"时触发。
+# 否则接口瞬断 + 二维码过期会被误判成"没人扫码"，一个 docker restart
+# 就把在线的小号踢下线（真实发生过的事故）。
+
+
+def _napcat_started_at():
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.StartedAt}}", "napcat"],
+            capture_output=True, text=True, timeout=10)
+        return r.stdout.strip()
+    except Exception:
+        return None
+
+
+def _maybe_regen_qr(qr_age):
+    """二维码超过 2 分钟没被换新且从未登录过 → 自动重启出一张新的。"""
+    if _LOGIN_SEEN_THIS_BOOT["ok"]:
+        return   # 本次启动登录成功过：宁可让用户手动点刷新，也不踢号
+    if qr_age is not None and qr_age < 110:
+        return
+    if time.time() - _LAST_QR_RESTART[0] < 30:
+        return
+    _LAST_QR_RESTART[0] = time.time()
+    try:
+        import subprocess
+        subprocess.run(["docker", "restart", "napcat"],
+                       capture_output=True, timeout=60)
+    except Exception:
+        pass
+
+
+@bp.get("/qq_login")
+def qq_login_status():
+    """QQ 卡片的扫码登录状态：二维码 + 是否已登录。前端 3 秒轮询一次。"""
+    out = {"napcat": False, "logged_in": False, "uin": "", "nickname": "",
+           "qr": None, "qr_age": None, "http_ready": False}
+    if not _napcat_running():
+        return jsonify({"success": True, **out})
+    out["napcat"] = True
+
+    # 容器重启过 → 重置"本次启动登录过"标记
+    since = _napcat_started_at()
+    if since != _LOGIN_SEEN_THIS_BOOT["since"]:
+        _LOGIN_SEEN_THIS_BOOT["since"] = since
+        _LOGIN_SEEN_THIS_BOOT["ok"] = False
+
+    # 登录态（HTTP 开了才有）
+    logged, uin, nick = _napcat_login_via_http()
+    if logged:
+        _LOGIN_SEEN_THIS_BOOT["ok"] = True
+        out.update(logged_in=True, uin=uin, nickname=nick, http_ready=True)
+        return jsonify({"success": True, **out})
+
+    # 二维码：NapCat 等待扫码时会持续刷新这个文件
+    qr_age = None
+    try:
+        if os.path.exists(_NAPCAT_QR):
+            import base64
+            qr_age = int(time.time() - os.path.getmtime(_NAPCAT_QR))
+            with open(_NAPCAT_QR, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            out["qr"] = "data:image/png;base64," + b64
+            out["qr_age"] = qr_age
+    except Exception:
+        pass
+    _maybe_regen_qr(qr_age)
+
+    # 兜底判断：onebot11_<uin>.json 出现说明登录过一次。
+    # 但配置文件在掉线后仍在，所以只在"没有新鲜二维码"时才当作已登录
+    # ——否则会把扫码页误判成已登录，用户想重扫都扫不了。
+    try:
+        import glob
+        if glob.glob(os.path.join(_NAPCAT_CFG, "onebot11_*.json")) \
+                and (out["qr_age"] is None or out["qr_age"] > 115):
+            out["logged_in"] = True   # 登录过但 HTTP 还没开 → 前端提示一键开启
+    except Exception:
+        pass
+    return jsonify({"success": True, **out})
+
+
+@bp.post("/qq_refresh")
+def qq_refresh_qr():
+    """二维码过期时重启 NapCat 容器强制出新码。"""
+    import subprocess
+    subprocess.run(["docker", "restart", "napcat"], capture_output=True,
+                   timeout=60)
+    time.sleep(5)
+    return jsonify({"success": True})
+
+
+@bp.post("/qq_enable_http")
+def qq_enable_http():
+    """登录成功后一键开启 OneBot HTTP 接口（3000 + token），自动写配置。"""
+    import glob
+    import subprocess
+
+    cfg_dir = _NAPCAT_CFG
+    files = sorted(glob.glob(os.path.join(cfg_dir, "onebot11_*.json")),
+                   key=os.path.getmtime)
+    if not files:
+        return jsonify({"success": False,
+                        "error": "还没找到登录过的账号配置（先扫码登录）"})
+
+    # token：留空就自动生成一串，写回 .env，工作台输入框同步
+    token = (env_read().get("ONEBOT_ACCESS_TOKEN") or "").strip()
+    if not token:
+        token = "nb" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:24]
+        env_write({"ONEBOT_ACCESS_TOKEN": token})
+
+    # 地址/启用开关直接落盘：不写的话 loadHealth 会把前端自动填的
+    # 值又刷回未保存的空值，用户勾"启用"保存时就会报"要填 OneBot 地址"。
+    env_write({"QQ_ENABLED": "true",
+               "ONEBOT_URL": f"http://127.0.0.1:{_NAPCAT_HTTP_PORT}"})
+
+    path = files[-1]
+    try:
+        with open(path, encoding="utf-8") as f:
+            conf = json.load(f)
+    except Exception:
+        conf = {}
+    server = {
+        "name": "workbench-push",
+        "enable": True,
+        "port": _NAPCAT_HTTP_PORT,
+        "host": "0.0.0.0",
+        "enableCors": True,
+        "enableWebsocket": False,
+        "messagePostFormat": "array",
+        "token": token,
+        "debug": False,
+    }
+    # NapCat v4 是 network.httpServers，老版本是顶层 httpServers，两边都兜住
+    if isinstance(conf.get("network"), dict):
+        servers = conf["network"].setdefault("httpServers", [])
+        servers[:] = [s for s in servers if s.get("port") != _NAPCAT_HTTP_PORT]
+        servers.append(server)
+    else:
+        servers = conf.setdefault("httpServers", [])
+        servers[:] = [s for s in servers if s.get("port") != _NAPCAT_HTTP_PORT]
+        servers.append(server)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(conf, f, ensure_ascii=False, indent=2)
+
+    subprocess.run(["docker", "restart", "napcat"], capture_output=True,
+                   timeout=60)
+    time.sleep(6)
+    ok, uin, nick = _napcat_login_via_http()
+    return jsonify({"success": True, "token": token, "logged_in": ok,
+                    "uin": uin, "nickname": nick})
+
+
 @bp.post("/credentials/parse")
 def parse_credentials():
     """把用户粘贴的任意内容识别成 (平台, 配置项, 值)。

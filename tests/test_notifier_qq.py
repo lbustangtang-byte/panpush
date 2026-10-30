@@ -136,33 +136,71 @@ class TestSendQq(unittest.TestCase):
 
 
 class TestFanout(unittest.TestCase):
-    def test_send_notifications_includes_qq(self):
+    """QQ_PUSH_MODE 语义：
+    - trigger（默认）→ 文案带「替换推送」才推；摘要路径无触发词上下文，一律不推
+    - off → 永不推
+    """
+
+    def test_notifications_skipped_in_trigger_mode_without_context(self):
         with mock.patch.object(nt.requests, "post",
                                return_value=_resp({"retcode": 0})):
             out = nt.send_notifications(_cfg(), SHARES)
-        self.assertIsNotNone(out["qq"])
-        self.assertTrue(out["qq"]["success"])
+        self.assertIsNone(out["qq"])
+
+    def test_notifications_skipped_in_off_mode(self):
+        with mock.patch.object(nt.requests, "post",
+                               return_value=_resp({"retcode": 0})):
+            out = nt.send_notifications(_cfg(push_mode="off"), SHARES)
+        self.assertIsNone(out["qq"])
 
     def test_qq_none_when_disabled(self):
         out = nt.send_notifications(_cfg(enabled=False), SHARES)
         self.assertIsNone(out["qq"])
 
-    def test_raw_text_goes_to_qq(self):
+    def test_raw_text_needs_explicit_trigger(self):
+        with mock.patch.object(nt.requests, "post",
+                               return_value=_resp({"retcode": 0})):
+            out = nt.send_raw_text(_cfg(), "入口：https://pan.quark.cn/s/abc",
+                                   qq_push=False)
+        self.assertIsNone(out["qq"])
+
+    def test_raw_text_goes_to_qq_with_trigger(self):
         with mock.patch.object(nt.requests, "post",
                                return_value=_resp({"retcode": 0})) as post:
-            out = nt.send_raw_text(_cfg(), "入口：https://pan.quark.cn/s/abc")
+            out = nt.send_raw_text(_cfg(), "入口：https://pan.quark.cn/s/abc",
+                                   qq_push=True)
         self.assertIsNotNone(out["qq"])
+        self.assertTrue(out["qq"]["success"])
         self.assertIn("入口", post.call_args[1]["json"]["message"][0]["data"]["text"])
 
-    def test_wechat_and_qq_both_sent(self):
+    def test_raw_text_skipped_in_off_mode_even_with_trigger(self):
+        with mock.patch.object(nt.requests, "post",
+                               return_value=_resp({"retcode": 0})):
+            out = nt.send_raw_text(_cfg(push_mode="off"),
+                                   "入口：https://pan.quark.cn/s/abc",
+                                   qq_push=True)
+        self.assertIsNone(out["qq"])
+
+    def test_wechat_sent_even_when_qq_skipped(self):
         cfg = _cfg()
         cfg["wechat"] = {"webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x"}
         with mock.patch.object(nt.requests, "post",
                                return_value=_resp({"retcode": 0, "errcode": 0})) as post:
             out = nt.send_notifications(cfg, SHARES)
-        self.assertEqual(post.call_count, 2)
+        # 只有企业微信一路发出，QQ 因 trigger 模式无触发词被跳过
+        self.assertEqual(post.call_count, 1)
         self.assertIsNotNone(out["wechat"])
-        self.assertIsNotNone(out["qq"])
+        self.assertIsNone(out["qq"])
+
+    def test_qq_should_push_matrix(self):
+        on = _cfg()
+        off = _cfg(push_mode="off")
+        disabled = _cfg(enabled=False)
+        self.assertFalse(nt.qq_should_push(off, has_trigger=True))
+        self.assertFalse(nt.qq_should_push(disabled, has_trigger=True))
+        self.assertFalse(nt.qq_should_push(on, has_trigger=None))
+        self.assertTrue(nt.qq_should_push(on, has_trigger=True))
+        self.assertFalse(nt.qq_should_push(on, has_trigger=False))
 
 
 if __name__ == "__main__":

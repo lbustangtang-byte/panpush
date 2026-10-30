@@ -175,6 +175,10 @@ def load_config():
             "api_url": _get("ONEBOT_URL", ""),
             "group_id": _get("QQ_GROUP_ID", ""),
             "access_token": _get("ONEBOT_ACCESS_TOKEN", ""),
+            # 推送策略：
+            #   trigger —— 文案里带「替换推送」触发词才推 QQ（防误推，默认）
+            #   off     —— 永不推 QQ
+            "push_mode": (_get("QQ_PUSH_MODE", "trigger") or "trigger").strip(),
         },
     }
     return config

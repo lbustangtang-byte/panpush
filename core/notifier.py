@@ -209,6 +209,28 @@ def qq_target(config):
     return url, group, headers
 
 
+QQ_TRIGGER_WORD = "替换推送"
+
+
+def qq_should_push(config, has_trigger=None):
+    """按 QQ_PUSH_MODE 判断这轮要不要推 QQ 群。
+
+    - off     → 永不推；
+    - trigger → 文案带「替换推送」触发词才推（has_trigger 给出检测结果；
+                未给时按 False 处理，宁可漏推不误推）。
+    通道本身没启用时一律 False。
+    """
+    cfg = (config.get("qq") or {})
+    if not cfg.get("enabled"):
+        return False
+    mode = (cfg.get("push_mode") or "trigger").strip()
+    if mode == "off":
+        return False
+    if has_trigger is None:
+        has_trigger = False
+    return bool(has_trigger)
+
+
 def send_qq_notification(config, shares, kw=None, failed=False):
     """发送到 QQ 群（OneBot 协议端，如 NapCat / LLOneBot）。
 
@@ -252,23 +274,30 @@ def send_notifications(config, shares, kw=None, failed=False, push_feishu=True):
     # 飞书群机器人同样受 FEISHU_ENABLED 总开关控制（与 bitable 共用单一开关）
     feishu_enabled = bool(feishu_cfg.get("enabled"))
     qq_url, _qq_group, _qq_headers = qq_target(config)
+    # 摘要路径没有文案触发词上下文：trigger/off 模式下都不推 QQ
+    qq_ok = bool(qq_url) and qq_should_push(config, has_trigger=None)
 
     out = {"wechat": None, "feishu": None, "qq": None}
     if wechat_url:
         out["wechat"] = send_wechat_notification(wechat_url, shares, kw, failed)
     if feishu_url and push_feishu and feishu_enabled:
         out["feishu"] = send_feishu_notification(feishu_url, shares, kw, failed)
-    if qq_url:
+    if qq_ok:
         out["qq"] = send_qq_notification(config, shares, kw, failed)
-    if not wechat_url and not (feishu_url and push_feishu and feishu_enabled) and not qq_url:
+    elif qq_url:
+        log_print("QQ 通道已配置但本轮不推送：QQ_PUSH_MODE 不是常推模式", "INFO")
+    if not wechat_url and not (feishu_url and push_feishu and feishu_enabled) and not qq_ok:
         log_print("未配置任何推送通道（企业微信/飞书/QQ）或对应开关未启用，跳过推送",
                   "WARNING")
     return out
 
 
-def send_raw_text(config, text, max_len=MAX_LEN, add_page_marks=True):
+def send_raw_text(config, text, max_len=MAX_LEN, add_page_marks=True,
+                  qq_push=None):
     """把整段文案原样推送到企业微信 + 飞书（用于替换后的完整文案直推）。
 
+    :param qq_push: 是否推 QQ 群。None 时按 QQ_PUSH_MODE 自动判断
+                    （trigger 模式下未显式给出触发结果就视为不带触发词，不推）。
     :returns: {"wechat": {...}|None, "feishu": {...}|None, "chunks": n}
     """
     chunks = _split_chunks(text, max_len)
@@ -281,6 +310,7 @@ def send_raw_text(config, text, max_len=MAX_LEN, add_page_marks=True):
     # 飞书群机器人同样受 FEISHU_ENABLED 总开关控制（与 bitable 共用单一开关）
     feishu_enabled = bool(feishu_cfg.get("enabled"))
     qq_url, qq_group, qq_headers = qq_target(config)
+    qq_ok = bool(qq_url) and qq_should_push(config, has_trigger=qq_push)
 
     out = {"wechat": None, "feishu": None, "qq": None, "chunks": len(chunks)}
     if wechat_url:
@@ -289,11 +319,14 @@ def send_raw_text(config, text, max_len=MAX_LEN, add_page_marks=True):
     if feishu_url and feishu_enabled:
         out["feishu"] = _send_chunks(feishu_url, chunks, _feishu_payload,
                                      "飞书", add_page_marks)
-    if qq_url:
+    if qq_ok:
         out["qq"] = _send_chunks(qq_url, chunks,
                                  lambda t: _onebot_payload(t, qq_group),
                                  "QQ", add_page_marks, headers=qq_headers)
-    if not wechat_url and not (feishu_url and feishu_enabled) and not qq_url:
+    elif qq_url:
+        log_print("QQ 通道已配置但本轮不推送：开关要求文案带触发词"
+                  f"「{QQ_TRIGGER_WORD}」（或推送开关已关闭）", "INFO")
+    if not wechat_url and not (feishu_url and feishu_enabled) and not qq_ok:
         log_print("未配置任何推送通道（企业微信/飞书/QQ）或对应开关未启用，跳过推送",
                   "WARNING")
     return out
