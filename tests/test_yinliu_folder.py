@@ -77,10 +77,15 @@ class TestPlan(unittest.TestCase):
         self.assertEqual(p["dest"], "/转存资源/某课程")
         self.assertEqual(p["name"], "资料包")
 
-    def test_skip_when_dest_is_src_parent(self):
-        """目标是源的父目录时跳过，否则会复制出同名副本。"""
+    def test_skip_when_dest_is_src(self):
+        """目标就是引流文件夹本身时跳过，避免自己复制自己。"""
         self.assertIsNone(
-            yf.plan(_cfg(global_folder="/转存资源/引流"), "quark", "/转存资源"))
+            yf.plan(_cfg(global_folder="/转存资源/引流"), "quark", "/转存资源/引流/"))
+
+    def test_dest_may_be_src_parent(self):
+        """复制的是子项，目标为源的父目录是合法的（不会产生同名壳）。"""
+        p = yf.plan(_cfg(global_folder="/转存资源/引流"), "quark", "/转存资源")
+        self.assertIsNotNone(p)
 
     def test_skip_when_no_dest(self):
         self.assertIsNone(yf.plan(_cfg(global_folder="/引流"), "quark", ""))
@@ -89,36 +94,76 @@ class TestPlan(unittest.TestCase):
         self.assertIsNone(yf.plan(_cfg(), "xunlei", "/转存资源/x"))
 
 
+def _children(*names):
+    return [{"name": n, "path": f"/引流/{n}", "dir": False} for n in names]
+
+
 class TestInsert(unittest.TestCase):
     def test_not_configured_returns_skipped(self):
         calls = []
         res = yf.insert(_cfg(), "baidu", "/转存资源/x",
-                        lambda s, d: calls.append((s, d)) or {"ok": True})
+                        lambda s: [], lambda s, d: calls.append((s, d)) or {"ok": True})
         self.assertTrue(res.get("skipped"))
         self.assertEqual(calls, [])
 
-    def test_success(self):
-        seen = {}
+    def test_copies_children_not_the_wrapper_folder(self):
+        """核心语义：复制引流文件夹里面的子项，而不是文件夹本身。"""
+        seen = []
 
         def copy_fn(src, dest):
-            seen["src"], seen["dest"] = src, dest
+            seen.append((src, dest))
             return {"ok": True, "skipped": False, "message": "已复制"}
 
-        res = yf.insert(_cfg(global_folder="/引流"), "xunlei", "/转存资源/x", copy_fn)
+        res = yf.insert(_cfg(global_folder="/替换引流文件"), "xunlei", "/推送/资源",
+                        lambda s: _children("扫码加群.jpg", "更多浮力"), copy_fn)
         self.assertTrue(res["ok"])
-        self.assertEqual(seen, {"src": "/引流", "dest": "/转存资源/x"})
+        self.assertEqual(seen, [("/引流/扫码加群.jpg", "/推送/资源"),
+                                ("/引流/更多浮力", "/推送/资源")])
+        self.assertEqual(res["count"], 2)
+        # 绝不能把 /替换引流文件 这个壳本身复制过去
+        self.assertNotIn(("/替换引流文件", "/推送/资源"), seen)
 
-    def test_exception_is_swallowed(self):
-        def boom(src, dest):
+    def test_empty_folder_skipped(self):
+        called = []
+        res = yf.insert(_cfg(global_folder="/引流"), "quark", "/资源",
+                        lambda s: [], lambda s, d: called.append(s) or {"ok": True})
+        self.assertTrue(res["skipped"])
+        self.assertEqual(called, [])
+
+    def test_partial_failure_still_counts_success(self):
+        def copy_fn(src, dest):
+            if src.endswith("坏的"):
+                return {"ok": False, "message": "errno=2"}
+            return {"ok": True}
+
+        res = yf.insert(_cfg(global_folder="/引流"), "quark", "/资源",
+                        lambda s: _children("好的", "坏的"), copy_fn)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["ok_count"], 1)
+        self.assertEqual(len(res["errors"]), 1)
+
+    def test_list_exception_is_swallowed(self):
+        def boom(src):
             raise RuntimeError("网盘抽风")
 
-        res = yf.insert(_cfg(global_folder="/引流"), "quark", "/转存资源/x", boom)
+        res = yf.insert(_cfg(global_folder="/引流"), "quark", "/转存资源/x",
+                        boom, lambda s, d: {"ok": True})
         self.assertFalse(res["ok"])
         self.assertIn("网盘抽风", res["message"])
 
+    def test_single_item_exception_does_not_stop_others(self):
+        def copy_fn(src, dest):
+            if src.endswith("炸"):
+                raise RuntimeError("单项爆炸")
+            return {"ok": True}
+
+        res = yf.insert(_cfg(global_folder="/引流"), "baidu", "/资源",
+                        lambda s: _children("炸", "好的"), copy_fn)
+        self.assertEqual(res["ok_count"], 1)
+
     def test_failure_result(self):
         res = yf.insert(_cfg(global_folder="/引流"), "baidu", "/转存资源/x",
-                        lambda s, d: {"ok": False, "message": "errno=2"})
+                        lambda s: _children("a"), lambda s, d: {"ok": False, "message": "errno=2"})
         self.assertFalse(res["ok"])
 
 
@@ -250,9 +295,10 @@ class TestNoLocalFallback(unittest.TestCase):
         self.assertEqual(left, [], f"assets 里不该再有本地引流素材: {left}")
 
     def test_insert_skipped_when_disabled(self):
-        """关闭状态下 insert 直接跳过，不会去调 copy_fn。"""
+        """关闭状态下 insert 直接跳过，不会去调 list_fn/copy_fn。"""
         called = []
         r = yf.insert(_cfg(enabled=False, quark="/引流"), "quark", "/资源",
+                      lambda s: called.append(("list", s)) or _children("a"),
                       lambda s, d: called.append((s, d)) or {"ok": True})
         self.assertTrue(r.get("skipped"))
         self.assertEqual(called, [])

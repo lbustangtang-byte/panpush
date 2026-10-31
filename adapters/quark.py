@@ -501,7 +501,8 @@ def _resolve_fid_to_path(kuake_cli, folder_fid):
         return _FID_PATH_CACHE[folder_fid]
     try:
         result = subprocess.run(
-            [kuake_cli, "list", "/"], capture_output=True, timeout=15
+            [kuake_cli, "list", "/"], capture_output=True, timeout=15,
+            stdin=subprocess.DEVNULL,
         )
         text = result.stdout.decode("utf-8", errors="replace")
         data = json.loads(text[text.find("{"):]) if text.find("{") >= 0 else {}
@@ -526,6 +527,7 @@ def _kuake_list(kuake_cli, path):
         result = subprocess.run(
             [kuake_cli, "list", path], capture_output=True, timeout=30,
             encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL,
         )
         text = result.stdout.strip()
         if not text:
@@ -551,6 +553,7 @@ def _kuake_info(kuake_cli, path):
         result = subprocess.run(
             [kuake_cli, "info", path], capture_output=True, timeout=30,
             encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL,
         )
         text = result.stdout.strip()
         if not text:
@@ -572,6 +575,7 @@ def _kuake_delete(kuake_cli, path):
         result = subprocess.run(
             [kuake_cli, "delete", path], capture_output=True, timeout=30,
             encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL,
         )
         text = result.stdout.strip()
         ok = result.returncode == 0 and ("success" in text.lower() or "成功" in text)
@@ -595,6 +599,7 @@ def _kuake_rename(kuake_cli, path, new_name):
         result = subprocess.run(
             [kuake_cli, "rename", path, new_name], capture_output=True, timeout=30,
             encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL,
         )
         text = result.stdout.strip()
         ok = result.returncode == 0 and ("success" in text.lower() or "成功" in text)
@@ -651,6 +656,7 @@ def _kuake_copy_folder(kuake_cli, src_path, dest_dir, skip_exists=True):
         result = subprocess.run(
             [kuake_cli, "copy", src_path, dest_dir],
             capture_output=True, timeout=120, encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL,
         )
         text = (result.stdout or "") + (result.stderr or "")
         ok = result.returncode == 0 and ("success" in text.lower() or "成功" in text
@@ -692,7 +698,19 @@ def _insert_yinliu_for_quark(kuake_cli, config, folder_fid, folder_path, top_fid
 
     skip = (config.get("yinliu_folder") or {}).get("skip_exists", True)
     return yf.insert(config, "quark", dest_dir,
+                     lambda s: _kuake_list_children(kuake_cli, s),
                      lambda s, d: _kuake_copy_folder(kuake_cli, s, d, skip))
+
+
+def _kuake_list_children(kuake_cli, path):
+    """列出目录的直接子项，统一成 {"name", "path", "dir"}（引流复制用）。
+
+    只取一层，不递归：引流文件夹里的子文件夹保持原样整份复制过去。
+    """
+    return [{"name": _kuake_entry_name(e),
+             "path": e.get("path") or f"{path.rstrip('/')}/{_kuake_entry_name(e)}",
+             "dir": bool(e.get("dir"))}
+            for e in _kuake_list(kuake_cli, path)]
 
 
 def _resolve_top_fids_to_paths(kuake_cli, folder_fid, top_fids):

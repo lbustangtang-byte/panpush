@@ -916,7 +916,30 @@ def _insert_yinliu_xunlei(client, config, target_dir, save_as_fids):
 
     skip = (config.get("yinliu_folder") or {}).get("skip_exists", True)
     return yf.insert(config, "xunlei", target_dir or "/",
+                     lambda s: _xunlei_list_children(client, s),
                      lambda s, d: client.copy_folder(s, dest_fid, skip))
+
+
+def _xunlei_list_children(client, path):
+    """列出目录的直接子项，统一成 {"name", "path", "dir"}（引流复制用）。
+
+    只取一层；子文件夹整份复制，不展开内部结构。
+    """
+    try:
+        fid = client.resolve_fid(path)
+    except XunleiError:
+        return []
+    if not fid:
+        return []
+    base = str(path).rstrip("/")
+    out = []
+    for it in client.ls(fid) or []:
+        name = it.get("file_name") or ""
+        if not name:
+            continue
+        out.append({"name": name, "path": f"{base}/{name}",
+                    "dir": bool(it.get("dir"))})
+    return out
 
 
 def _find_child_by_fid(client, target_dir, fid):
