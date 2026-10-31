@@ -75,7 +75,25 @@ def _split_chunks(text, max_len=MAX_LEN):
         return []
     if len(text) <= max_len:
         return [text]
-    return [text[i:i + max_len] for i in range(0, len(text), max_len)]
+    # 按行聚合：绝不把一行（往往是一条链接）从中间劈开。
+    # 单行本身超长时才硬切断，避免死循环。
+    chunks, buf = [], ""
+    for line in text.split("\n"):
+        while len(line) > max_len:
+            if buf:
+                chunks.append(buf)
+                buf = ""
+            chunks.append(line[:max_len])
+            line = line[max_len:]
+        candidate = f"{buf}\n{line}" if buf else line
+        if len(candidate) > max_len:
+            chunks.append(buf)
+            buf = line
+        else:
+            buf = candidate
+    if buf:
+        chunks.append(buf)
+    return chunks
 
 
 def _wechat_payload(text):

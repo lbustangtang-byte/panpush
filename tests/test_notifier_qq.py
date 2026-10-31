@@ -205,3 +205,19 @@ class TestFanout(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChunkBoundary(unittest.TestCase):
+    def test_split_never_breaks_a_link(self):
+        """分页必须在换行处切，不能把一条链接从中间劈开。"""
+        url = "https://pan.quark.cn/s/a934ac21843f"
+        lines = ["标题" * 20] * 200
+        lines[100] = f"跨克🔗：{url}"
+        text = "\n".join(lines)
+        chunks = nt._split_chunks(text, 500)
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            for line in c.split("\n"):
+                if "http" in line:
+                    self.assertIn(url, line)
+        self.assertEqual("\n".join(chunks), text)
